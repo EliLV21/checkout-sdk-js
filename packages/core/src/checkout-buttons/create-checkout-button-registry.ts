@@ -50,7 +50,8 @@ export default function createCheckoutButtonRegistry(
     const remoteCheckoutRequestSender = new RemoteCheckoutRequestSender(requestSender);
     const remoteCheckoutActionCreator = new RemoteCheckoutActionCreator(remoteCheckoutRequestSender, checkoutActionCreator);
     const checkoutValidator = new CheckoutValidator(checkoutRequestSender);
-    const orderActionCreator = new OrderActionCreator(new OrderRequestSender(requestSender), checkoutValidator);
+    const orderRequestSender = new OrderRequestSender(requestSender);
+    const orderActionCreator = new OrderActionCreator(orderRequestSender, checkoutValidator);
     const paymentRequestSender = new PaymentRequestSender(paymentClient);
     const paymentRequestTransformer = new PaymentRequestTransformer();
     const paymentHumanVerificationHandler = new PaymentHumanVerificationHandler(createSpamProtection(createScriptLoader()));
@@ -262,7 +263,8 @@ export default function createCheckoutButtonRegistry(
             store,
             checkoutActionCreator,
             formPoster,
-            paypalCommercePaymentProcessor
+            paypalCommercePaymentProcessor,
+            orderActionCreator
         )
     );
 
