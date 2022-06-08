@@ -108,13 +108,11 @@ describe('PaypalCommercePaymentProcessor', () => {
                 eventEmitter.on('approve', () => {
                     if (options.onApprove) {
                         options.onApprove({orderID}, { order: {
-                                capture: jest.fn(),
-                                authorize: jest.fn(),
-                                patch: jest.fn(),
                                 get: jest.fn(),
                             },
                             resolve: jest.fn(),
-                            reject: jest.fn()});
+                            reject: jest.fn()},
+                            );
                     }
                 });
 
@@ -266,6 +264,48 @@ describe('PaypalCommercePaymentProcessor', () => {
             const deleteCart = paypalCommerceRequestSender.deleteCart = jest.fn();
             await paypalCommercePaymentProcessor.deleteCart('1');
             expect(deleteCart).toHaveBeenCalled();
+        });
+
+        it('call setShippingOptions', async () => {const setShippingDataMock = {
+            amount: {
+                breakdown: {
+                    item_total: {
+                        currency_code: 'USD',
+                        value: '100',
+                    },
+                    shipping: {
+                        currency_code: 'USD',
+                        value: '100',
+                    },
+                    tax_total: {
+                        currency_code: 'USD',
+                        value: '100',
+                    },
+                },
+                currency_code: 'USD',
+                value: '100',
+            },
+            orderID: '123',
+            payment_token: 'PAYMENT_TOKEN',
+            shipping_address: {
+                city: 'Los-Angeles',
+                postal_code: '08547',
+                country_code: 'US',
+                state: 'CA',
+            },
+            selected_shipping_option: {
+                id: '123',
+                amount: {
+                    currency_code: 'USD',
+                    value: '100',
+                },
+            },
+            availableShippingOptions: {},
+            cartId: '1'
+        };
+            const setShippingOptions = paypalCommerceRequestSender.setShippingOptions = jest.fn();
+            await paypalCommercePaymentProcessor.setShippingOptions(setShippingDataMock);
+            expect(setShippingOptions).toHaveBeenCalled();
         });
 
         it('throw error if button is not eligible', async () => {

@@ -1,3 +1,5 @@
+import Cart from "../../../cart/cart";
+
 export interface ApproveDataOptions {
     orderID?: string;
 }
@@ -60,47 +62,18 @@ export interface ButtonsOptions {
     fundingSource?: string;
     createOrder?(): Promise<string>;
     onApprove?(data: ApproveDataOptions, actions: ApproveActions): void;
-    onShippingChange?(data: ShippingChangeData, actions: ApproveActions): void;
+    onShippingChange?(data: ShippingChangeData, actions: ApproveActions, cart: Cart): void;
     onClick?(data: ClickDataOptions, actions: ClickActions): void;
-    onCancel?(): void;
+    onCancel?(data: OnCancelData): Promise<void> | void;
     onError?(error: Error): void;
 }
 
 export interface ApproveActions {
     order: {
-        capture(): Promise<PayerDetails>;
-        authorize(): Promise<PayerDetails>;
-        patch(data: PatchArgument[]): void;
         get(): Promise<PayerDetails>;
     };
     resolve(): void;
     reject(): void;
-}
-
-interface PatchArgument {
-    op: string;
-    path: string;
-    value: PatchValue | ShippingOption[];
-}
-
-interface PatchValue {
-    currency_code: string;
-    value: string | number;
-    breakdown: {
-        item_total: {
-            value: number | string;
-            currency_code: string;
-        };
-        shipping?: ItemTotal;
-    };
-}
-
-export interface AvaliableShippingOption {
-    additionalDescription: string;
-    cost: number;
-    id: string;
-    isRecommended: boolean;
-    description: string;
 }
 
 export interface PayerDetails {
@@ -135,6 +108,8 @@ export interface ShippingChangeData {
         id: string;
         amount: ItemTotal;
     };
+    cartId: string;
+    availableShippingOptions: any;
 }
 
 export interface ShippingAddress {
@@ -144,12 +119,8 @@ export interface ShippingAddress {
     state: string;
 }
 
-export interface PaymentMethodInitializationData {
-    initializationData?: {
-        intent?: string;
-        isHosted?: boolean;
-        clientId?: string;
-    };
+export interface PayPalCommercePaymentMethod {
+    initializationData?: PaypalCommerceInitializationData
     id?: string;
 }
 
@@ -157,6 +128,17 @@ export interface CurrentShippingAddress {
     city: string;
     countryCode: string;
     postalCode: string;
+}
+
+export interface ShippingData extends CurrentShippingAddress{
+    firstName: string;
+    lastName: string;
+    address1: string;
+    email: string;
+}
+
+export interface OnCancelData {
+    orderId: string;
 }
 
 interface ItemTotal {
@@ -175,11 +157,11 @@ export interface ShippingOption {
 export interface AddressData {
     firstName?: string;
     lastName?: string;
-    countryCode: string;
-    postalCode: string;
+    countryCode?: string;
+    postalCode?: string;
     email?: string;
     address1?: string;
-    city: string;
+    city?: string;
 }
 
 export interface PurchaseUnits {
@@ -373,9 +355,10 @@ export interface PaypalCommerceInitializationData {
     clientToken?: string;
     attributionId?: string;
     isVenmoEnabled?: boolean;
+    isHostedCheckoutEnabled?: boolean;
 }
 
-export type ComponentsScriptType = Array<'buttons' | 'messages' | 'hosted-fields' | 'fields'>;
+export type ComponentsScriptType = Array<'buttons' | 'messages' | 'hosted-fields' | 'payment-fields'>;
 
 export interface PaypalCommerceScriptParams  {
     'client-id': string;

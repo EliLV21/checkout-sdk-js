@@ -59,8 +59,10 @@ export default function createCheckoutButtonRegistry(
     const paymentActionCreator = new PaymentActionCreator(paymentRequestSender, orderActionCreator, paymentRequestTransformer, paymentHumanVerificationHandler);
     const braintreeSdkCreator = new BraintreeSDKCreator(new BraintreeScriptLoader(scriptLoader));
     const countryActionCreator = new CountryActionCreator(new CountryRequestSender(requestSender, { locale }));
-    const consignmentActionCreator = new ConsignmentActionCreator(new ConsignmentRequestSender(requestSender), new CheckoutRequestSender(requestSender));
-    const billingAdressActionCreator = new BillingAddressActionCreator(new BillingAddressRequestSender(requestSender), new SubscriptionsActionCreator(new SubscriptionsRequestSender(requestSender)));
+    const consignmentActionCreator = new ConsignmentActionCreator(new ConsignmentRequestSender(requestSender), checkoutRequestSender);
+    const billingRequestSender = new BillingAddressRequestSender(requestSender);
+    const subscriptionActionCreator = new SubscriptionsActionCreator(new SubscriptionsRequestSender(requestSender));
+    const billingAddressActionCreator = new BillingAddressActionCreator(billingRequestSender, subscriptionActionCreator);
     const paypalCommercePaymentProcessor = createPaypalCommercePaymentProcessor(scriptLoader, requestSender, store, orderActionCreator, paymentActionCreator);
     const paypalScriptLoader = new PaypalCommerceScriptLoader(scriptLoader);
     const paypalCommerceRequestSender = new PaypalCommerceRequestSender(requestSender);
@@ -72,12 +74,7 @@ export default function createCheckoutButtonRegistry(
             requestSender,
             paymentMethodActionCreator,
             consignmentActionCreator,
-            new BillingAddressActionCreator(
-                new BillingAddressRequestSender(requestSender),
-                new SubscriptionsActionCreator(
-                    new SubscriptionsRequestSender(requestSender)
-                )
-            ),
+            billingAddressActionCreator,
             new PaymentActionCreator(
                 new PaymentRequestSender(paymentClient),
                 new OrderActionCreator(
@@ -268,7 +265,7 @@ export default function createCheckoutButtonRegistry(
             orderActionCreator,
             countryActionCreator,
             consignmentActionCreator,
-            billingAdressActionCreator,
+            billingAddressActionCreator,
             paymentActionCreator
         )
     );

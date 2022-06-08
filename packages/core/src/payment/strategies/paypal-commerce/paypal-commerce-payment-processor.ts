@@ -7,7 +7,7 @@ import { PaymentMethodClientUnavailableError } from '../../errors';
 import PaymentActionCreator from '../../payment-action-creator';
 import PaymentStrategyType from '../../payment-strategy-type';
 
-import { ButtonsOptions, FieldsOptions, NON_INSTANT_PAYMENT_METHODS, ParamsForProvider, PaypalButtonStyleOptions, PaypalCommerceButtons, PaypalCommerceFields, PaypalCommerceHostedFields, PaypalCommerceHostedFieldsApprove, PaypalCommerceHostedFieldsRenderOptions, PaypalCommerceHostedFieldsState, PaypalCommerceHostedFieldsSubmitOptions, PaypalCommerceMessages, PaypalCommerceRequestSender, PaypalCommerceScriptLoader, PaypalCommerceScriptParams, PaypalCommerceSDK, PaypalCommerceSDKFunding, PaypalFieldsStyleOptions, StyleButtonColor, StyleButtonLabel, StyleButtonLayout, StyleButtonShape } from './index';
+import { ButtonsOptions, FieldsOptions, NON_INSTANT_PAYMENT_METHODS, ParamsForProvider, PaypalButtonStyleOptions, PaypalCommerceButtons, PaypalCommerceFields, PaypalCommerceHostedFields, PaypalCommerceHostedFieldsApprove, PaypalCommerceHostedFieldsRenderOptions, PaypalCommerceHostedFieldsState, PaypalCommerceHostedFieldsSubmitOptions, PaypalCommerceMessages, PaypalCommerceRequestSender, PaypalCommerceScriptLoader, PaypalCommerceScriptParams, PaypalCommerceSDK, PaypalCommerceSDKFunding, PaypalFieldsStyleOptions, ShippingChangeData, StyleButtonColor, StyleButtonLabel, StyleButtonLayout, StyleButtonShape } from './index';
 
 export interface OptionalParamsRenderButtons {
     paramsForProvider?: ParamsForProvider;
@@ -137,32 +137,12 @@ export default class PaypalCommercePaymentProcessor {
         return this._orderId;
     }
 
-    async getShippingOptions(cartId: string, payload: {}) {
-        return  await this._paypalCommerceRequestSender.getShippingOptions(cartId, payload);
-    }
-
-    async getStoreCountries() {
-        return  await this._paypalCommerceRequestSender.getStoreCountries();
-    }
-
-    async getConsignments(cartId: string, payload: {}) {
-        return await this._paypalCommerceRequestSender.getConsignments(cartId, payload);
-    }
-
-    async getBillingAddress(cartId: string, payload: PayerDetails) {
-        return await this._paypalCommerceRequestSender.getBillingAddress(cartId, payload);
-    }
-
-    async putConsignments(checkoutId: string, consignmentId: string, payload: {shippingOptionId: string}) {
-        return await this._paypalCommerceRequestSender.putConsignments(checkoutId, consignmentId, payload);
-    }
-
     async deleteCart(cartId: string) {
         return await this._paypalCommerceRequestSender.deleteCart(cartId);
     }
 
-     getBilling(checkoutId: string, consignmentId: string, selected: string) {
-        return this._paypalCommerceRequestSender.getBilling(checkoutId, consignmentId, selected);
+    async setShippingOptions(payload: ShippingChangeData) {
+        return await this._paypalCommerceRequestSender.setShippingOptions(payload);
     }
 
     renderMessages(cartTotal: number, container: string): PaypalCommerceMessages {
@@ -331,5 +311,4 @@ export default class PaypalCommercePaymentProcessor {
 
         throw new NotImplementedError(`PayPal ${this._fundingSource || ''} is not available for your region. Please use PayPal Checkout instead.`);
     }
-
 }

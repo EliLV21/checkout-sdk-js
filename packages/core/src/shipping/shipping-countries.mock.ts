@@ -29,15 +29,17 @@ export function getAustralia(): Country {
         code: 'AU',
         name: 'Australia',
         subdivisions: [
-            { code: 'NSW', name: 'New South Wales' },
+            { id: 1 , code: 'NSW', name: 'New South Wales' },
         ],
         hasPostalCodes: true,
         requiresState: true,
+        id: '2'
     };
 }
 
 export function getJapan(): Country {
     return {
+        id: '1',
         code: 'JP',
         name: 'Japan',
         hasPostalCodes: false,

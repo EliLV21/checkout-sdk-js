@@ -1,4 +1,4 @@
-export const UNITED_STATES_CODES = [
+export const UNITED_STATES_CODES: UnitedStateCode[] = [
     {
         name: 'Alabama',
         abbreviation: 'AL',
@@ -236,3 +236,8 @@ export const UNITED_STATES_CODES = [
         abbreviation: 'WY',
     },
 ];
+
+interface UnitedStateCode {
+    name: string;
+    abbreviation: string;
+}

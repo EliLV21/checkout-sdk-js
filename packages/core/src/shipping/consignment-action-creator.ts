@@ -171,7 +171,6 @@ export default class ConsignmentActionCreator {
         consignments: ConsignmentsRequestBody,
         options?: RequestOptions<CheckoutParams>
     ): ThunkAction<CreateConsignmentsAction, InternalCheckoutSelectors> {
-
         return store => Observable.create((observer: Observer<CreateConsignmentsAction>) => {
             const checkout = store.getState().checkout.getCheckout();
 

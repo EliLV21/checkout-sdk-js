@@ -1,4 +1,5 @@
 export default interface Country {
+    id: string;
     code: string;
     name: string;
     hasPostalCodes: boolean;
@@ -7,9 +8,9 @@ export default interface Country {
 }
 
 export interface Region {
+    id: number;
     code: string;
     name: string;
-    id?: number;
 }
 
 export interface GetCountryResponse {

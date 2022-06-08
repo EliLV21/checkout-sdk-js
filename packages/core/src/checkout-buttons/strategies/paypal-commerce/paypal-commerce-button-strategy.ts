@@ -2,31 +2,23 @@ import { FormPoster } from '@bigcommerce/form-poster';
 import { includes } from 'lodash';
 
 import { BillingAddressActionCreator } from '../../../billing/';
-import { Cart, CollectedLineItem, LineItemMap } from '../../../cart';
 import { CheckoutActionCreator, CheckoutStore } from '../../../checkout';
 import { InvalidArgumentError, MissingDataError, MissingDataErrorType, RequestError } from '../../../common/error/errors';
 import { Country, CountryActionCreator, Region, UnitedStatesCodes, UNITED_STATES_CODES } from '../../../geography';
 import { OrderActionCreator } from '../../../order';
 import { PaymentActionCreator } from '../../../payment/';
-import { ApproveActions, ApproveDataOptions, AvaliableShippingOption, ButtonsOptions, ClickDataOptions, CurrentShippingAddress, FundingType, PaymentMethodInitializationData, PaypalCommerceInitializationData, PaypalCommercePaymentProcessor, PaypalCommerceScriptParams, ShippingAddress, ShippingChangeData } from '../../../payment/strategies/paypal-commerce';
-import { ConsignmentActionCreator } from '../../../shipping';
+import { ApproveActions, ApproveDataOptions, ButtonsOptions, ClickDataOptions, CurrentShippingAddress, FundingType, OnCancelData, PayPalCommercePaymentMethod, PaypalCommercePaymentProcessor, PaypalCommerceScriptParams, ShippingAddress, ShippingChangeData, ShippingData } from '../../../payment/strategies/paypal-commerce';
+import { ConsignmentActionCreator, ConsignmentLineItem } from '../../../shipping';
 import { CheckoutButtonInitializeOptions } from '../../checkout-button-options';
 import CheckoutButtonStrategy from '../checkout-button-strategy';
 
 export default class PaypalCommerceButtonStrategy implements CheckoutButtonStrategy {
-    private _paymentMethod?: PaymentMethodInitializationData;
+    private _paymentMethod?: PayPalCommercePaymentMethod;
     private _isCredit?: boolean;
-    private _submittedShippingAddress?: CurrentShippingAddress;
     private _currentShippingAddress?: CurrentShippingAddress;
-    private _selectedShippingOptionId?: string;
-    private _isVenmo?: boolean;
     private _isVenmoEnabled?: boolean;
-    private _cache?: any;
-    private _submittedShippingAddress?: any;
-    private _currentShippingAddress?: any;
-    private _shippingOptionId?: string;
-    private _addShipping?: boolean;
-    private _intent?: string;
+    private _isVenmo?: boolean;
+    private _shippingData?: ShippingData;
 
     constructor(
         private _store: CheckoutStore,
@@ -37,35 +29,37 @@ export default class PaypalCommerceButtonStrategy implements CheckoutButtonStrat
         private _countryActionCreator: CountryActionCreator,
         private _consignmentActionCreator: ConsignmentActionCreator,
         private _billingAddressActionCreator: BillingAddressActionCreator,
-        private _paymentActionCreator: PaymentActionCreator
+        private _paymentActionCreator: PaymentActionCreator,
     ) {}
 
     async initialize(options: CheckoutButtonInitializeOptions): Promise<void> {
         const state = await this._store.dispatch(this._checkoutActionCreator.loadDefaultCheckout());
         this._paymentMethod = state.paymentMethods.getPaymentMethodOrThrow(options.methodId);
-        const { initializationData } = state.paymentMethods.getPaymentMethodOrThrow(options.methodId);
 
         if (!this._paymentMethod?.initializationData?.clientId) {
-            throw new InvalidArgumentError();
+            throw new InvalidArgumentError('Unable to initialise payment because "Client Id" is not defined');
         }
+
         await this._store.dispatch(this._countryActionCreator.loadCountries());
         await this._store.dispatch(this._consignmentActionCreator.loadShippingOptions());
 
-        this._isVenmoEnabled = initializationData.isVenmoEnabled;
-        state = await this._store.dispatch(this._checkoutActionCreator.loadDefaultCheckout());
+        const { isHostedCheckoutEnabled, isVenmoEnabled } = this._paymentMethod.initializationData;
+
+        this._isVenmoEnabled = isVenmoEnabled;
         const cart = state.cart.getCartOrThrow();
 
         const buttonParams: ButtonsOptions = {
-            onApprove: (data: ApproveDataOptions, actions: ApproveActions) => this._onApproveHandler( data, actions, cart),
-            onClick: data => this._handleClickButtonProvider(data),
-            onShippingChange: (data, actions) => this._onShippingChangeHandler(data, actions, cart),
+            onApprove: (data, actions) => this._onApproveHandler(data, actions),
+            onClick: (data) =>  this._handleClickButtonProvider(data),
+            onCancel: (data) => this._handleOnCancel(data),
+            ...(isHostedCheckoutEnabled && { onShippingChange: (data) => this._onShippingChangeHandler(data) }),
             style: options?.paypalCommerce?.style,
         };
 
         const messagingContainer = options.paypalCommerce?.messagingContainer;
         const isMessagesAvailable = Boolean(messagingContainer && document.getElementById(messagingContainer));
 
-        await this._paypalCommercePaymentProcessor.initialize(this._getParamsScript(initializationData, cart), undefined, initializationData.isVenmoEnabled);
+        await this._paypalCommercePaymentProcessor.initialize(this._getParamsScript(), undefined, isVenmoEnabled);
 
         this._paypalCommercePaymentProcessor.renderButtons(cart.id, `#${options.containerId}`, buttonParams);
 
@@ -83,11 +77,37 @@ export default class PaypalCommerceButtonStrategy implements CheckoutButtonStrat
         return Promise.resolve();
     }
 
-    private _onApproveHandler(data: ApproveDataOptions, actions: ApproveActions, cart: Cart) {
-        const { isHosted = true } = this._paymentMethod?.initializationData || {};
+    private async _handleOnCancel(_data: OnCancelData) {
+        const lineItems = this._getLineItems();
+        const existingConsignments = this._store.getState().consignments.getConsignmentsOrThrow();
+        const { email } = this._store.getState().billingAddress.getBillingAddressOrThrow();
+        const { firstName, lastName, address1 } = existingConsignments?.[0].shippingAddress || {};
+        const shippingAddress = {
+            ...this._shippingData,
+            firstName: firstName !== 'Fake' ? firstName : '',
+            lastName: lastName !== 'Fake' ? lastName: '',
+            address1: address1 !== 'Fake street' ? address1 : '',
+            email: email !== 'fake@fake.fake' ? email : '',
+        };
+        const consignment = [{
+            shippingAddress,
+            lineItems,
+        }];
+        await this._store.dispatch(this._billingAddressActionCreator.updateAddress(shippingAddress));
+        if(existingConsignments?.[0]) {
+            await this._store.dispatch(this._consignmentActionCreator.deleteConsignment(existingConsignments[0].id));
+            await this._store.dispatch(this._consignmentActionCreator.createConsignments(consignment));
+        }
+    }
 
-        return isHosted
-            ? this._onHostedMethodApprove(data, actions, cart)
+    private _onApproveHandler(data: ApproveDataOptions, actions: ApproveActions) {
+        if (!this._paymentMethod?.initializationData) {
+            throw new MissingDataError(MissingDataErrorType.MissingPaymentMethod);
+        }
+
+        const { isHostedCheckoutEnabled } = this._paymentMethod.initializationData;
+        return isHostedCheckoutEnabled
+            ? this._onHostedMethodApprove(data, actions)
             : this._tokenizePayment(data);
     }
 
@@ -118,200 +138,138 @@ export default class PaypalCommerceButtonStrategy implements CheckoutButtonStrat
         });
     }
 
-    private async _onHostedMethodApprove(data: ApproveDataOptions, actions: ApproveActions, cart: Cart) {
-        if (this._currentShippingAddress) {
-            try {
-                const orderDetails = await actions.order.get();
-                const shippingAddress = {
-                    ...this._currentShippingAddress,
-                    firstName: orderDetails.payer.name.given_name,
-                    lastName: orderDetails.payer.name.surname,
-                    email: orderDetails.payer.email_address,
-                    address1: orderDetails.purchase_units[0].shipping.address.address_line_1,
-                };
-                const lineItems = this._collectLineItems(cart.lineItems);
-                const consignment = [{
-                    shippingAddress,
-                    lineItems,
-                }];
-                await this._store.dispatch(this._consignmentActionCreator.createConsignments(consignment));
-                const updatedBillingAddress = await this._store.dispatch(this._billingAddressActionCreator.updateAddress(shippingAddress));
-                const consignments = updatedBillingAddress.consignments.getConsignmentsOrThrow();
-
-                if (consignments && this._selectedShippingOptionId) {
-                    await this._store.dispatch(this._consignmentActionCreator.updateConsignment({id: consignments[0].id, shippingOptionId: this._selectedShippingOptionId}));
-                }
-                if (this._orderActionCreator) {
-                    const submitOrderPayload = {};
-                    const submitOrderOptions = {
-                        params: {
-                            methodId: this._paymentMethod?.id,
-                        },
-                    };
-                    await this._store.dispatch(this._orderActionCreator.submitOrder(submitOrderPayload, submitOrderOptions));
-
-                    const paymentData =  {
-                        formattedPayload: {
-                            vault_payment_instrument: null,
-                            set_as_default_stored_instrument: null,
-                            device_info: null,
-                            method_id: this._paymentMethod?.id,
-                            paypal_account: {
-                                order_id: data.orderID,
-                            },
-                        },
-                    };
-                    await this._store.dispatch(this._paymentActionCreator.submitPayment({ ...{methodId: 'paypalcommerce'}, paymentData }));
-                }
-                window.location.assign('/checkout/order-confirmation');
-            } catch (e) {
-                throw new RequestError(e);
+    private async _onHostedMethodApprove(data: ApproveDataOptions, actions: ApproveActions) {
+        try {
+            const orderDetails = await actions.order.get();
+            const consignments = this._store.getState().consignments.getConsignmentsOrThrow();
+            const lineItems = this._getLineItems();
+            if (!this._paymentMethod?.id) {
+                throw new MissingDataError(MissingDataErrorType.MissingPaymentMethod);
             }
-        }
+            const methodId = this._paymentMethod?.id;
+            const shippingAddress = {
+                ...this._currentShippingAddress,
+                firstName: orderDetails.payer.name.given_name,
+                lastName: orderDetails.payer.name.surname,
+                email: orderDetails.payer.email_address,
+                address1: orderDetails.purchase_units[0].shipping.address.address_line_1,
+            };
+            const consignment = {
+                id: consignments[0].id,
+                shippingAddress,
+                lineItems,
+            };
+            await this._store.dispatch(this._billingAddressActionCreator.updateAddress(shippingAddress));
 
-    }
+            await this._store.dispatch(this._consignmentActionCreator.updateConsignment(consignment));
 
-    private async _onShippingChangeHandler(data: ShippingChangeData, actions: ApproveActions, cart: Cart) {
-        const baseOrderAmount = cart.baseAmount;
-        let shippingAmount = '0.00';
-        this._currentShippingAddress = await this._transformToAddress(data.shipping_address);
-        const lineItems = this._collectLineItems(cart.lineItems);
-        const consignment = [{
-            shippingAddress: {...this._currentShippingAddress},
-            lineItems,
-        }];
-        await this._store.dispatch(this._consignmentActionCreator.createConsignments(consignment));
-        const checkout = this._store.getState().checkout.getCheckoutOrThrow();
-        const availableShippingOptions = checkout.consignments[0].availableShippingOptions;
-        const shippingRequired = checkout.cart.lineItems.physicalItems.length > 0;
-        if (!shippingRequired) {
-            return await actions.order.patch([
-                {
-                    op: 'replace',
-                    path: '/purchase_units/@reference_id==\'default\'/amount',
-                    value: {
-                        currency_code: checkout.cart.currency.code,
-                        value: (parseFloat(String(baseOrderAmount))).toFixed(2),
-                        breakdown: {
-                            item_total: {
-                                currency_code: checkout.cart.currency.code,
-                                value: baseOrderAmount,
-                            },
-                        },
-                    },
-                },
-            ]);
-        }
-
-        if (shippingRequired && availableShippingOptions?.length === 0) {
-            return actions.reject();
-        }
-
-        const shippingOptions = availableShippingOptions?.map((option: AvaliableShippingOption) => {
-            let isSelected = false;
-            // Buyer has chosen shipping option on PP list and address the same
-            if (data.selected_shipping_option && this._isAddressSame(
-                this._currentShippingAddress, this._submittedShippingAddress
-            )) {
-                if (option.id === data.selected_shipping_option.id) {
-                    shippingAmount = data.selected_shipping_option.amount.value;
-                    isSelected = true;
-                }
-            } else {
-                if (option.isRecommended) {
-                    shippingAmount = parseFloat(String(option.cost)).toFixed(2);
-                    isSelected = true;
-                }
-            }
-
-            return {
-                id: option.id,
-                type: 'SHIPPING',
-                label: option.description,
-                selected: isSelected,
-                amount: {
-                    value: parseFloat(String(option.cost)).toFixed(2),
-                    currency_code: checkout.cart.currency.code,
+            const submitOrderPayload = {};
+            const submitOrderOptions = {
+                params: {
+                    methodId,
                 },
             };
-        });
 
-        shippingOptions?.sort( (a, b) => {
-            return (a.selected === b.selected) ? 0 : a ? -1 : 1;
-        });
-        if (shippingOptions) {
-            this._selectedShippingOptionId = shippingOptions.find(option => option.selected)?.id;
-        }
+            await this._store.dispatch(this._orderActionCreator.submitOrder(submitOrderPayload, submitOrderOptions));
 
-        this._submittedShippingAddress = this._currentShippingAddress;
-
-        if (shippingOptions && this._selectedShippingOptionId) {
-            return actions.order.patch([
-                {
-                    op: 'replace',
-                    path: '/purchase_units/@reference_id==\'default\'/amount',
-                    value: {
-                        currency_code: checkout.cart.currency.code,
-                        value: (parseFloat(String(baseOrderAmount)) + parseFloat(shippingAmount)).toFixed(2),
-                        breakdown: {
-                            item_total: {
-                                currency_code: checkout.cart.currency.code,
-                                value: baseOrderAmount,
-                            },
-                            shipping: {
-                                currency_code: checkout.cart.currency.code,
-                                value: shippingAmount,
-                            },
-                        },
+            const paymentData =  {
+                formattedPayload: {
+                    vault_payment_instrument: null,
+                    set_as_default_stored_instrument: null,
+                    device_info: null,
+                    method_id: methodId,
+                    paypal_account: {
+                        order_id: data.orderID,
                     },
                 },
-                {
-                    op: 'add',
-                    path: '/purchase_units/@reference_id==\'default\'/shipping/options',
-                    value: shippingOptions,
-                },
-            ]);
+            };
+            await this._store.dispatch(this._paymentActionCreator.submitPayment({methodId,paymentData}));
+            window.location.assign('/checkout/order-confirmation');
+        } catch (e) {
+            throw new RequestError(e);
         }
     }
 
-    private _isAddressSame(address1: CurrentShippingAddress | undefined, address2: CurrentShippingAddress | undefined) {
-        return JSON.stringify(address1) === JSON.stringify(address2);
+    private async _onShippingChangeHandler(data: ShippingChangeData) {
+        const state = this._store.getState();
+        const cart = state.cart.getCartOrThrow();
+        const { id: selectedShippingOptionId } = data.selected_shipping_option || {};
+        const shippingAddress = await this._transformToAddress(data.shipping_address);
+        this._currentShippingAddress = shippingAddress;
+        const lineItems = this._getLineItems();
+        const consignments = [{ shippingAddress, lineItems }];
+        const existingConsignments = state.consignments.getConsignmentsOrThrow();
+        if (existingConsignments?.[0]) {
+            await this._store.dispatch(this._consignmentActionCreator.deleteConsignment(existingConsignments[0].id));
+        }
+          const updatedState = await this._store.dispatch(this._consignmentActionCreator.createConsignments(consignments));
+
+        const { availableShippingOptions, id: consignmentId } = updatedState.consignments.getConsignmentsOrThrow()[0] || {};
+        const { id: recommendedShippingOptionId } = availableShippingOptions?.find(option => option.isRecommended) || {};
+        const isSelectedOptionExist = selectedShippingOptionId && availableShippingOptions?.find(option => option.id === selectedShippingOptionId);
+        await this._store.dispatch(this._billingAddressActionCreator.updateAddress(shippingAddress));
+
+        await this._store.dispatch(this._consignmentActionCreator.updateConsignment({
+            id: consignmentId,
+            shippingOptionId: isSelectedOptionExist ? selectedShippingOptionId : recommendedShippingOptionId
+        }));
+
+        await this._paypalCommercePaymentProcessor.setShippingOptions({
+            ...data,
+            cartId: cart.id,
+            availableShippingOptions,
+        });
     }
 
     private _getUSStateByCode(code: string) {
-       return  UNITED_STATES_CODES.find((state: UnitedStatesCodes) => {
+        return  UNITED_STATES_CODES.find((state: UnitedStatesCodes) => {
             return state.name === code && state.abbreviation;
         });
     }
 
     private async _transformToAddress(contact: ShippingAddress) {
-        const countries = this._store.getState().countries.getCountries();
+        const state = this._store.getState();
+        const countries = state.countries.getCountries();
         const addressCountry = countries?.find((country: Country) => (
             country.code === (contact.country_code || '').toUpperCase()));
         const stateAddress = addressCountry?.subdivisions.find((region: Region) => (
             region.code === contact.state?.toUpperCase() || region.code === this._getUSStateByCode(contact.state)?.abbreviation));
+        const existingConsignment = this._store.getState().consignments.getConsignmentsOrThrow();
 
         if (!stateAddress && !contact.postal_code) {
             throw new InvalidArgumentError('Invalid Address');
         }
 
-        return {
+        const { firstName, lastName, address1, email } = existingConsignment?.[0]?.shippingAddress || {};
+        const shippingData = {
             city: contact.city,
             postalCode: stateAddress?.code || contact.postal_code,
             countryCode: contact.country_code,
+            firstName: firstName ? firstName : 'Fake',
+            lastName: lastName ? lastName :'Fake',
+            address1: address1 ? address1 : 'Fake street',
+            email: email ? email : 'fake@fake.fake'
         };
+        this._shippingData = shippingData;
+        return shippingData;
     }
 
-    private _collectLineItems(lineItems: LineItemMap): CollectedLineItem[] {
-        const { digitalItems, physicalItems  } = lineItems;
-
+    private _getLineItems(): ConsignmentLineItem[] {
+        const state = this._store.getState();
+        const cart = state.cart.getCartOrThrow();
+        const { digitalItems, physicalItems  } = cart.lineItems;
         return [...digitalItems, ...physicalItems].map(({ id, quantity }) => ({
             itemId: id,
             quantity,
         }));
     }
 
-    private _getParamsScript(initializationData: PaypalCommerceInitializationData, cart: Cart): PaypalCommerceScriptParams {
+    private _getParamsScript(): PaypalCommerceScriptParams {
+        const cart  = this._store.getState().cart.getCart();
+        if (!this._paymentMethod?.initializationData) {
+            throw new MissingDataError(MissingDataErrorType.MissingPaymentMethod);
+        }
+
         const {
             clientId,
             intent,
@@ -321,7 +279,8 @@ export default class PaypalCommerceButtonStrategy implements CheckoutButtonStrat
             availableAlternativePaymentMethods = [],
             enabledAlternativePaymentMethods = [],
             isVenmoEnabled,
-        } = initializationData;
+            isHostedCheckoutEnabled,
+        } = this._paymentMethod.initializationData;
 
         const disableFunding: FundingType = [ 'card' ];
         const enableFunding: FundingType = enabledAlternativePaymentMethods.slice();
@@ -331,7 +290,7 @@ export default class PaypalCommerceButtonStrategy implements CheckoutButtonStrat
          *  therefore there's a need to add credit, paylater or APM name to enable/disable funding explicitly
          */
         availableAlternativePaymentMethods.forEach(apm => {
-            if (!includes(enabledAlternativePaymentMethods, apm)) {
+            if (!includes(enabledAlternativePaymentMethods, apm) || isHostedCheckoutEnabled) {
                 disableFunding.push(apm);
             }
         });
@@ -351,8 +310,8 @@ export default class PaypalCommerceButtonStrategy implements CheckoutButtonStrat
         return {
             'client-id': clientId,
             'merchant-id': merchantId,
-            commit: false,
-            currency: cart.currency.code,
+            commit: !!isHostedCheckoutEnabled,
+            currency: cart?.currency.code,
             components: ['buttons', 'messages'],
             'disable-funding': disableFunding,
             ...(enableFunding.length && {'enable-funding': enableFunding}),

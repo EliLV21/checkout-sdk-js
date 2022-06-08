@@ -27,11 +27,12 @@ export function getCountriesState(): CountryState {
 
 export function getAustralia(): Country {
     return {
+        id: '1',
         code: 'AU',
         name: 'Australia',
         subdivisions: [
-            { code: 'NSW', name: 'New South Wales' },
-            { code: 'VIC', name: 'Victoria' },
+            { id: 1, code: 'NSW', name: 'New South Wales' },
+            { id: 2,code: 'VIC', name: 'Victoria' },
         ],
         hasPostalCodes: true,
         requiresState: true,
@@ -40,12 +41,13 @@ export function getAustralia(): Country {
 
 export function getUnitedStates(): Country {
     return {
+        id: '2',
         code: 'US',
         name: 'United States',
         hasPostalCodes: true,
         subdivisions: [
-            { code: 'CA', name: 'California' },
-            { code: 'TX', name: 'Texas' },
+            { id: 1, code: 'CA', name: 'California' },
+            { id:2,  code: 'TX', name: 'Texas' },
         ],
         requiresState: false,
     };
@@ -53,6 +55,7 @@ export function getUnitedStates(): Country {
 
 export function getJapan(): Country {
     return {
+        id: '4',
         code: 'JP',
         name: 'Japan',
         hasPostalCodes: false,
